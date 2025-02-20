@@ -1,0 +1,89 @@
+import 'dart:async';
+import 'package:equatable/equatable.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_todos/todos_overview/models/todos_view_filter.dart';
+import 'package:todos_repository/todos_repository.dart';
+
+part 'todos_overview_event.dart';
+part 'todos_overview_state.dart';
+
+class TodosOverviewBloc extends Bloc<TodosOverviewEvent, TodosOverviewState> {
+  final TodosRepository _todosRepository;
+
+  TodosOverviewBloc(this._todosRepository) : super(TodosOverviewState()) {
+    on<TodosOverviewSubscriptionRequested>(_onSubscriptionRequested);
+    on<TodosOverviewCompletionToggled>(_onTodoCompletionToggled);
+    on<TodosOverviewTodoDeleted>(_onTodoDeleted);
+    on<TodosOverviewUndoDeletionRequested>(_onUndoDeletionRequested);
+    on<TodosOverviewFilterChanged>(_onFilterChanged);
+    on<TodosOverviewToggleAllRequested>(_onToggleAllRequested);
+    on<TodosOverviewClearCompletedRequested>(_onClearCompletedRequested);
+  }
+
+  Future<void> _onSubscriptionRequested(
+    TodosOverviewSubscriptionRequested event,
+    Emitter<TodosOverviewState> emit,
+  ) async {
+    emit(state.copyWith(status: () => TodosOverviewStatus.loading));
+
+    await emit.forEach<List<Todo>>(
+      _todosRepository.getTodos(),
+      onData:
+          (todos) => state.copyWith(
+            status: () => TodosOverviewStatus.success,
+            todos: () => todos,
+          ),
+      onError:
+          (_, _) => state.copyWith(status: () => TodosOverviewStatus.failure),
+    );
+  }
+
+  Future<void> _onTodoCompletionToggled(
+    TodosOverviewCompletionToggled event,
+    Emitter<TodosOverviewState> emit,
+  ) async {
+    final newTodo = event.todo.copyWith(isCompleted: event.isCompleted);
+    await _todosRepository.saveTodo(newTodo);
+  }
+
+  Future<void> _onTodoDeleted(
+    TodosOverviewTodoDeleted event,
+    Emitter<TodosOverviewState> emit,
+  ) async {
+    emit(state.copyWith(lastDeletedTodo: () => event.todo));
+    await _todosRepository.deleteTodo(event.todo.id);
+  }
+
+  Future<void> _onUndoDeletionRequested(
+    TodosOverviewUndoDeletionRequested event,
+    Emitter<TodosOverviewState> emit,
+  ) async {
+    assert(state.lastDeletedTodo != null, 'Last deleted todo cannot be null');
+
+    final todo = state.lastDeletedTodo!;
+    emit(state.copyWith(lastDeletedTodo: () => null));
+    await _todosRepository.saveTodo(todo);
+  }
+
+  void _onFilterChanged(
+    TodosOverviewFilterChanged event,
+    Emitter<TodosOverviewState> emit,
+  ) {
+    emit(state.copyWith(filter: () => event.filter));
+  }
+
+  Future<void> _onToggleAllRequested(
+    TodosOverviewToggleAllRequested event,
+    Emitter<TodosOverviewState> emit,
+  ) async {
+    final areAllCompleted = state.todos.every((todo) => todo.isCompleted);
+    await _todosRepository.completeAll(isCompleted: !areAllCompleted);
+  }
+
+  Future<void> _onClearCompletedRequested(
+    TodosOverviewClearCompletedRequested event,
+    Emitter<TodosOverviewState> emit,
+  ) async {
+    await _todosRepository.clearCompleted();
+  }
+}
